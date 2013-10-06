@@ -93,6 +93,9 @@ struct tcp_seq_hash {
 #define ZEROLENOPT(o) ((o) == TCPOPT_EOL || (o) == TCPOPT_NOP)
 
 static struct tcp_seq_hash tcp_seq_hash[TSEQ_HASHSIZE];
+#ifdef INET6
+static struct tcp_seq_hash tcp_seq_hash6[TSEQ_HASHSIZE];
+#endif
 
 static const struct tok tcp_flag_values[] = {
         { TH_FIN, "F" },
@@ -272,8 +275,8 @@ tcp_print(register const u_char *bp, register u_int length,
                  * collating order so there's only one entry for
                  * both directions).
                  */
-#ifdef INET6
                 rev = 0;
+#ifdef INET6
                 if (ip6) {
                         src = &ip6->ip6_src;
                         dst = &ip6->ip6_dst;
@@ -304,16 +307,9 @@ tcp_print(register const u_char *bp, register u_int length,
                          * copying the IPv4 addresses, rather than
                          * zeroing out the entire structure and then
                          * overwriting some of the zeroes?
-                         *
-                         * XXX - this could fail if we see TCP packets
-                         * with an IPv6 address with the lower 124 bits
-                         * all zero and also see TCP packes with an
-                         * IPv4 address with the same 32 bits as the
-                         * upper 32 bits of the IPv6 address in question.
-                         * Can that happen?  Is it likely enough to be
-                         * an issue?
                          */
                         memset(&tha, 0, sizeof(tha));
+#endif
                         src = &ip->ip_src;
                         dst = &ip->ip_dst;
                         if (sport > dport)
@@ -331,30 +327,18 @@ tcp_print(register const u_char *bp, register u_int length,
                                 memcpy(&tha.src, src, sizeof ip->ip_src);
                                 tha.port = sport << 16 | dport;
                         }
+#ifdef INET6
                 }
-#else
-                rev = 0;
-                src = &ip->ip_src;
-                dst = &ip->ip_dst;
-                if (sport > dport)
-                        rev = 1;
-                else if (sport == dport) {
-                        if (memcmp(src, dst, sizeof ip->ip_dst) > 0)
-                                rev = 1;
-                }
-                if (rev) {
-                        memcpy(&tha.src, dst, sizeof ip->ip_dst);
-                        memcpy(&tha.dst, src, sizeof ip->ip_src);
-                        tha.port = dport << 16 | sport;
+                if (ip6) {
+                        th = &tcp_seq_hash6[tha.port % TSEQ_HASHSIZE];
                 } else {
-                        memcpy(&tha.dst, dst, sizeof ip->ip_dst);
-                        memcpy(&tha.src, src, sizeof ip->ip_src);
-                        tha.port = sport << 16 | dport;
+#endif
+                        th = &tcp_seq_hash[tha.port % TSEQ_HASHSIZE];
+#ifdef INET6
                 }
 #endif
 
-                for (th = &tcp_seq_hash[tha.port % TSEQ_HASHSIZE];
-                     th->nxt; th = th->nxt)
+                for (; th->nxt; th = th->nxt)
                         if (memcmp((char *)&tha, (char *)&th->addr,
                                    sizeof(th->addr)) == 0)
                                 break;
